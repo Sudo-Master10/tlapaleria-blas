@@ -74,12 +74,25 @@ export default function InventoryPage() {
     }
 
     const handleSubmit = async (formData: any) => {
-        if (editingProduct) {
-            await updateProduct(editingProduct.id, formData)
-        } else {
-            await addProduct(formData)
+        let result;
+        try {
+            if (editingProduct) {
+                result = await updateProduct(editingProduct.id, formData)
+            } else {
+                result = await addProduct(formData)
+            }
+
+            if (result.error) {
+                console.error("Error saving product:", result.error)
+                alert(`Error al guardar el producto: ${result.error.message || JSON.stringify(result.error)}`)
+                return; // Do NOT close modal
+            }
+
+            setIsModalOpen(false)
+        } catch (e: any) {
+            console.error("Unexpected error in handleSubmit:", e)
+            alert(`Error inesperado: ${e.message || e}`)
         }
-        setIsModalOpen(false)
     }
 
     return (
@@ -143,7 +156,16 @@ export default function InventoryPage() {
                                         <div className="flex items-center gap-3">
                                             <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
                                                 {p.image_url ? (
-                                                    <img src={p.image_url} alt="" className="object-cover w-full h-full" />
+                                                    <img
+                                                        src={p.image_url}
+                                                        alt=""
+                                                        className="object-cover w-full h-full"
+                                                        referrerPolicy="no-referrer"
+                                                        onError={(e) => {
+                                                            console.error("Image load error:", e);
+                                                            e.currentTarget.style.display = 'none'; // Hide broken image
+                                                        }}
+                                                    />
                                                 ) : (
                                                     <span className="text-[10px] text-muted-foreground">Sin img</span>
                                                 )}

@@ -46,44 +46,48 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
     fetchSalesMetrics: async () => {
         set({ loading: true })
+        try {
+            const now = new Date()
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+            const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
-        const now = new Date()
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-        const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+            // Today's sales
+            const { data: todaySales } = await supabase
+                .from('sales')
+                .select('total_amount')
+                .gte('created_at', todayStart)
+                .eq('status', 'completed')
 
-        // Today's sales
-        const { data: todaySales } = await supabase
-            .from('sales')
-            .select('total_amount')
-            .gte('created_at', todayStart)
-            .eq('status', 'completed')
+            // Week's sales
+            const { data: weekSales } = await supabase
+                .from('sales')
+                .select('total_amount')
+                .gte('created_at', weekStart)
+                .eq('status', 'completed')
 
-        // Week's sales
-        const { data: weekSales } = await supabase
-            .from('sales')
-            .select('total_amount')
-            .gte('created_at', weekStart)
-            .eq('status', 'completed')
+            // Month's sales
+            const { data: monthSales } = await supabase
+                .from('sales')
+                .select('total_amount')
+                .gte('created_at', monthStart)
+                .eq('status', 'completed')
 
-        // Month's sales
-        const { data: monthSales } = await supabase
-            .from('sales')
-            .select('total_amount')
-            .gte('created_at', monthStart)
-            .eq('status', 'completed')
-
-        set({
-            salesMetrics: {
-                today: todaySales?.reduce((sum, s) => sum + s.total_amount, 0) || 0,
-                week: weekSales?.reduce((sum, s) => sum + s.total_amount, 0) || 0,
-                month: monthSales?.reduce((sum, s) => sum + s.total_amount, 0) || 0,
-                todayCount: todaySales?.length || 0,
-                weekCount: weekSales?.length || 0,
-                monthCount: monthSales?.length || 0
-            },
-            loading: false
-        })
+            set({
+                salesMetrics: {
+                    today: todaySales?.reduce((sum, s) => sum + s.total_amount, 0) || 0,
+                    week: weekSales?.reduce((sum, s) => sum + s.total_amount, 0) || 0,
+                    month: monthSales?.reduce((sum, s) => sum + s.total_amount, 0) || 0,
+                    todayCount: todaySales?.length || 0,
+                    weekCount: weekSales?.length || 0,
+                    monthCount: monthSales?.length || 0
+                }
+            })
+        } catch (error) {
+            console.error("Dashboard: fetchSalesMetrics error:", error)
+        } finally {
+            set({ loading: false })
+        }
     },
 
     fetchTopProducts: async (limit = 5) => {

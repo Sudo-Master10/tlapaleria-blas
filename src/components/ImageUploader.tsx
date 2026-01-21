@@ -16,6 +16,7 @@ export default function ImageUploader({ onUpload, currentImage, productName = ''
     const [imageSrc, setImageSrc] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const cropperRef = useRef<ReactCropperElement>(null);
+    const searchWindowRef = useRef<Window | null>(null);
 
     const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -34,7 +35,14 @@ export default function ImageUploader({ onUpload, currentImage, productName = ''
         } else {
             url = `https://www.google.com/search?q=${query}&tbm=isch`;
         }
-        window.open(url, SEARCH_WINDOW_NAME, 'width=1000,height=800,menubar=no,toolbar=no,location=no,status=no');
+
+        // Use a unique name AND specific features to force a true window (popup) instead of a tab
+        const features = 'width=600,height=500,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes';
+        const newWindow = window.open(url, SEARCH_WINDOW_NAME, features);
+
+        if (newWindow) {
+            searchWindowRef.current = newWindow;
+        }
     }
 
     const handleCapture = async () => {
@@ -48,7 +56,7 @@ export default function ImageUploader({ onUpload, currentImage, productName = ''
             video.srcObject = stream;
             await video.play();
 
-            // Wait for video to stabilize/render to avoid white screen
+            // Wait for video to stabilize/render
             await new Promise(resolve => setTimeout(resolve, 800));
 
             // Draw frame to canvas
@@ -65,25 +73,28 @@ export default function ImageUploader({ onUpload, currentImage, productName = ''
             // Stop all tracks
             stream.getTracks().forEach(track => track.stop());
 
-            // Hack to force close the search window
-            // Executed AFTER capture to ensure we don't capture a blank page
-            try {
-                const win = window.open('about:blank', SEARCH_WINDOW_NAME);
-                if (win) {
-                    win.close();
+            // Auto-close the search window if it's still open
+            if (searchWindowRef.current && !searchWindowRef.current.closed) {
+                try {
+                    searchWindowRef.current.close();
+                    searchWindowRef.current = null;
+                } catch (e) {
+                    // Silently fail or use a more descriptive error if needed
                 }
-            } catch (e) {
-                console.warn("Could not close search window automatically", e);
             }
 
         } catch (err) {
             console.error("Error capturing screen:", err);
-            alert("No se pudo capturar la pantalla. Asegúrate de dar los permisos necesarios.");
+            if ((err as Error).name !== 'NotAllowedError') {
+                alert("No se pudo capturar la pantalla.");
+            }
         }
     };
 
     const handleSave = async () => {
         if (typeof cropperRef.current?.cropper === "undefined") {
+            console.error("Cropper not initialized");
+            alert("Error interno: El editor de imagen no está listo.");
             return;
         }
 
@@ -96,26 +107,42 @@ export default function ImageUploader({ onUpload, currentImage, productName = ''
                 height: 800
             });
 
-            if (!canvas) throw new Error("Could not create canvas");
+            if (!canvas) throw new Error("Could not create canvas - Image might be empty or invalid");
 
             const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
 
-            if (!blob) throw new Error("Could not create blob");
+            if (!blob) throw new Error("Could not create blob from canvas");
 
             // Convert to File
             const file = new File([blob], "product-image.jpg", { type: "image/jpeg" })
 
             // Compress
-            const compressedFile = await compressImage(file)
+            let compressedFile: File;
+            try {
+                compressedFile = await compressImage(file)
+            } catch (compErr) {
+                console.error("Compression failed:", compErr);
+                throw new Error("Error al comprimir la imagen. Intenta con otra.");
+            }
 
             // Upload
-            const url = await uploadToImgBB(compressedFile)
+            let url: string;
+            try {
+                url = await uploadToImgBB(compressedFile)
+            } catch (upErr) {
+                console.error("Upload failed:", upErr);
+                throw new Error("Error al subir a ImgBB. Verifica tu conexión o la API Key.");
+            }
+
+            if (!url) {
+                throw new Error("La subida finalizó pero no se recibió URL");
+            }
 
             onUpload(url)
             setImageSrc(null) // Close modal
-        } catch (e) {
-            console.error(e)
-            alert('Error al subir la imagen')
+        } catch (e: any) {
+            console.error("Detailed handleSave error:", e)
+            alert(`Error al guardar la imagen: ${e.message || e}`);
         } finally {
             setLoading(false)
         }
@@ -179,7 +206,12 @@ export default function ImageUploader({ onUpload, currentImage, productName = ''
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition-colors relative group min-h-[160px]">
                 {currentImage ? (
                     <div className="relative w-32 h-32 mb-2 group-hover:opacity-90 transition-opacity">
-                        <img src={currentImage} alt="Product" className="w-full h-full object-cover rounded-md shadow-sm" />
+                        <img
+                            src={currentImage}
+                            alt="Product"
+                            className="w-full h-full object-cover rounded-md shadow-sm"
+                            referrerPolicy="no-referrer"
+                        />
                     </div>
                 ) : (
                     <Upload className="w-10 h-10 text-gray-400 mb-2 group-hover:scale-110 transition-transform" />

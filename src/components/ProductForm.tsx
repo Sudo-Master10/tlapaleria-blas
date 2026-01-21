@@ -52,9 +52,30 @@ export default function ProductForm({ initialData, onSubmit, onCancel, isLoading
         }
     }, [initialData])
 
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        await onSubmit(formData)
+
+        if (isSubmitting) return;
+
+        try {
+            setIsSubmitting(true);
+
+            // Sanitize data: Convert empty strings to null for optional fields
+            const dataToSubmit = {
+                ...formData,
+                barcode: formData.barcode?.trim() === '' ? null : formData.barcode,
+                description: formData.description?.trim() === '' ? null : formData.description,
+            };
+
+            await onSubmit(dataToSubmit)
+        } catch (err) {
+            console.error("Error in ProductForm submission:", err);
+            // Error handling should be done by parent, but we ensure state is reset
+        } finally {
+            setIsSubmitting(false);
+        }
     }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -210,10 +231,10 @@ export default function ProductForm({ initialData, onSubmit, onCancel, isLoading
                         </button>
                         <button
                             type="submit"
-                            disabled={isLoading}
+                            disabled={isLoading || isSubmitting}
                             className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md disabled:opacity-50"
                         >
-                            {isLoading ? 'Guardando...' : 'Guardar Producto'}
+                            {isLoading || isSubmitting ? 'Guardando...' : 'Guardar Producto'}
                         </button>
                     </div>
                 </form>

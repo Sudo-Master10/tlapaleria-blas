@@ -10,10 +10,11 @@ export async function compressImage(file: File): Promise<File> {
         useWebWorker: true
     }
     try {
-        return await imageCompression(file, options)
+        const compressedFile = await imageCompression(file, options)
+        return compressedFile;
     } catch (error) {
         console.error('Error compressing image:', error)
-        throw error
+        throw new Error('Falló la compresión de la imagen: ' + (error instanceof Error ? error.message : String(error)));
     }
 }
 
@@ -24,7 +25,11 @@ export async function uploadToImgBB(file: File): Promise<string> {
     const renamedFile = new File([file], newFileName, { type: file.type })
 
     formData.append('image', renamedFile)
-    formData.append('key', IMGBB_API_KEY)
+    const apiKey = IMGBB_API_KEY;
+    if (!apiKey) {
+        throw new Error("Falta la API Key de ImgBB en las variables de entorno (.env)");
+    }
+    formData.append('key', apiKey)
 
     try {
         const response = await fetch('https://api.imgbb.com/1/upload', {

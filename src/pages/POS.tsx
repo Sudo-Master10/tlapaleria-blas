@@ -15,7 +15,7 @@ type Product = Database['public']['Tables']['products']['Row']
 export default function POSPage() {
     const { products, fetchProducts, loading, hasMore, loadMore, setSearchTerm: setStoreSearchTerm, getProductByCode } = useInventoryStore()
     const { items, addToCart, removeFromCart, updateQuantity, total, clearCart, priceType, setPriceType } = useCartStore()
-    const { user } = useAuthStore()
+    const { user, session } = useAuthStore()
 
     const [localSearchTerm, setLocalSearchTerm] = useState('')
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -36,8 +36,19 @@ export default function POSPage() {
     }, [])
 
     // Search Debounce
+    // Search Debounce with Cleanup
     useEffect(() => {
+        // Reset local search when mounting if we want to start fresh or keep previous?
+        // Better: Sync from store on mount? 
+        // But user issue is stuck loading.
+        // Let's ensure we don't effectively double fetch.
+
+        if (localSearchTerm.trim() === '') {
+            // If local is empty, just ensure store is empty (but debounce it)
+        }
+
         const timer = setTimeout(() => {
+            // Only update if different
             setStoreSearchTerm(localSearchTerm)
         }, 500)
         return () => clearTimeout(timer)
@@ -84,8 +95,6 @@ export default function POSPage() {
                 // Optional: Play beep sound here
                 // Reset debounce after 2 seconds
                 setTimeout(() => setLastScanned(null), 2000)
-            } else {
-                console.log('Product not found:', code)
             }
         }
     }
@@ -106,16 +115,37 @@ export default function POSPage() {
             const now = new Date().toISOString()
 
             // 1. Create Sale Record
-            const { error: saleError } = await supabase.from('sales').insert({
+            const saleData = {
                 id: saleId,
                 cashier_id: user.id,
                 total_amount: cartTotal,
                 payment_method: 'cash',
                 status: 'completed',
                 created_at: now
-            })
+            }
 
-            if (saleError) throw saleError
+            const timeoutPromise = () => new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("Supabase request timed out")), 3000)
+            );
+
+            try {
+                await Promise.race([
+                    supabase.from('sales').insert(saleData),
+                    timeoutPromise()
+                ]);
+            } catch (err) {
+                const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/sales`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`,
+                        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(saleData)
+                });
+                if (!response.ok) throw new Error(`Fallback sale creation failed: ${response.status}`);
+            }
 
             // 2. Create Sale Items
             const saleItems = items.map(item => ({
@@ -126,9 +156,24 @@ export default function POSPage() {
                 subtotal: item.subtotal
             }))
 
-            const { error: itemsError } = await supabase.from('sale_items').insert(saleItems)
-
-            if (itemsError) throw itemsError
+            try {
+                await Promise.race([
+                    supabase.from('sale_items').insert(saleItems),
+                    timeoutPromise()
+                ]);
+            } catch (err) {
+                const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/sale_items`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session?.access_token}`,
+                        'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(saleItems)
+                });
+                if (!response.ok) throw new Error(`Fallback items creation failed: ${response.status}`);
+            }
 
             // 3. Generate Receipt
             generateReceipt({
@@ -471,7 +516,7 @@ export default function POSPage() {
                                 width="100%"
                                 height="100%"
                                 onUpdate={handleScan}
-                                onError={(err: any) => console.log(err)}
+                                onError={() => { }}
                             />
                             {/* Scanner Overlay UI */}
                             <div className="absolute inset-0 border-2 border-primary/50 m-12 rounded-lg pointer-events-none animate-pulse"></div>
